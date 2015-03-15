@@ -389,7 +389,9 @@
                     (log-message "Shut down receive thread")
                     (log-message "Terminating messaging context")
                     (log-message "Shutting down executors")
-                    (doseq [executor @executors] (.shutdown executor))
+                    (doseq [executor @executors]
+                      (.close-components executor)
+                      (.shutdown executor))
                     (log-message "Shut down executors")
                                         
                     ;;this is fine because the only time this is shared is when it's a local context,

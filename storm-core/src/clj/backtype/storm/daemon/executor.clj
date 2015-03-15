@@ -157,6 +157,7 @@
 
 (defprotocol RunningExecutor
   (render-stats [this])
+  (close-components [this])
   (get-executor-id [this]))
 
 (defn throttled-report-error-fn [executor]
@@ -340,6 +341,10 @@
       RunningExecutor
       (render-stats [this]
         (stats/render-stats! (:stats executor-data)))
+      (close-components [this]
+        (when @(:open-or-prepare-was-called? executor-data)
+          (doseq [obj (map :object (vals task-datas))]
+            (close-component executor-data obj))))
       (get-executor-id [this]
         executor-id )
       Shutdownable
@@ -356,9 +361,9 @@
           (doseq [hook (.getHooks user-context)]
             (.cleanup hook)))
         (.disconnect (:storm-cluster-state executor-data))
-        (when @(:open-or-prepare-was-called? executor-data)
-          (doseq [obj (map :object (vals task-datas))]
-            (close-component executor-data obj)))
+;        (when @(:open-or-prepare-was-called? executor-data)
+;          (doseq [obj (map :object (vals task-datas))]
+;            (close-component executor-data obj)))
         (log-message "Shut down executor " component-id ":" (pr-str executor-id)))
         )))
 

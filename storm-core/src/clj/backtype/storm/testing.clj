@@ -113,6 +113,38 @@
   (if-not (conf STORM-LOCAL-MODE-ZMQ)
     (msg-loader/mk-local-context)))
 
+(defn get-supervisor [cluster-map supervisor-id]
+  (let [finder-fn #(= (.get-id %) supervisor-id)]
+    (find-first finder-fn @(:supervisors cluster-map))))
+
+(defn kill-supervisor [cluster-map supervisor-id]
+  (let [finder-fn #(= (.get-id %) supervisor-id)
+        supervisors @(:supervisors cluster-map)
+        sup (find-first finder-fn
+              supervisors)]
+    ;; tmp-dir will be taken care of by shutdown
+    (reset! (:supervisors cluster-map) (remove-first finder-fn supervisors))
+    (.shutdown sup)))
+
+(defn kill-local-storm-cluster [cluster-map]
+  (.shutdown (:nimbus cluster-map))
+  (.close (:state cluster-map))
+  (.disconnect (:storm-cluster-state cluster-map))
+  (doseq [s @(:supervisors cluster-map)]
+    (.shutdown-all-workers s)
+    ;; race condition here? will it launch the workers again?
+    (supervisor/kill-supervisor s))
+  (psim/kill-all-processes)
+  (log-message "Shutting down in process zookeeper")
+  (zk/shutdown-inprocess-zookeeper (:zookeeper cluster-map))
+  (log-message "Done shutting down in process zookeeper")
+  (doseq [t @(:tmp-dirs cluster-map)]
+    (log-message "Deleting temporary path " t)
+    (try
+      (rmr t)
+      ;; on windows, the host process still holds lock on the logfile
+      (catch Exception e (log-message (.getMessage e)))) ))
+
 ;; returns map containing cluster info
 ;; local dir is always overridden in maps
 ;; can customize the supervisors (except for ports) by passing in map for :supervisors parameter
@@ -149,39 +181,10 @@
                            (repeat supervisors {}))]
     (doseq [sc supervisor-confs]
       (add-supervisor cluster-map :ports ports-per-supervisor :conf sc))
+    (.addShutdownHook (Runtime/getRuntime)
+      (Thread. (fn []
+                 (kill-local-storm-cluster cluster-map))))
     cluster-map))
-
-(defn get-supervisor [cluster-map supervisor-id]
-  (let [finder-fn #(= (.get-id %) supervisor-id)]
-    (find-first finder-fn @(:supervisors cluster-map))))
-
-(defn kill-supervisor [cluster-map supervisor-id]
-  (let [finder-fn #(= (.get-id %) supervisor-id)
-        supervisors @(:supervisors cluster-map)
-        sup (find-first finder-fn
-                        supervisors)]
-    ;; tmp-dir will be taken care of by shutdown
-    (reset! (:supervisors cluster-map) (remove-first finder-fn supervisors))
-    (.shutdown sup)))
-
-(defn kill-local-storm-cluster [cluster-map]
-  (.shutdown (:nimbus cluster-map))
-  (.close (:state cluster-map))
-  (.disconnect (:storm-cluster-state cluster-map))
-  (doseq [s @(:supervisors cluster-map)]
-    (.shutdown-all-workers s)
-    ;; race condition here? will it launch the workers again?
-    (supervisor/kill-supervisor s))
-  (psim/kill-all-processes)
-  (log-message "Shutting down in process zookeeper")
-  (zk/shutdown-inprocess-zookeeper (:zookeeper cluster-map))
-  (log-message "Done shutting down in process zookeeper")
-  (doseq [t @(:tmp-dirs cluster-map)]
-    (log-message "Deleting temporary path " t)
-    (try
-      (rmr t)
-      ;; on windows, the host process still holds lock on the logfile
-      (catch Exception e (log-message (.getMessage e)))) ))
 
 (def TEST-TIMEOUT-MS 5000)
 
