@@ -388,9 +388,11 @@
                     (receive-thread-shutdown)
                     (log-message "Shut down receive thread")
                     (log-message "Terminating messaging context")
+                    (log-message "Closing executors.")
+                    (doseq [executor @executors]
+                      (.close-components executor))
                     (log-message "Shutting down executors")
                     (doseq [executor @executors]
-                      (.close-components executor)
                       (.shutdown executor))
                     (log-message "Shut down executors")
                                         
